@@ -22,13 +22,14 @@ The directory is not yet a git repository (only a `.gitignore` exists).
 - `NODE_ENV` — when `production`, TypeORM `synchronize` is **disabled** (otherwise on)
 
 ### REST API (admin)
-All under the HTTP server; all except login require `Authorization: Bearer <jwt>`.
-- `POST /auth/login` — `{ login, password }` → `{ accessToken }` (validated against `ADMIN_*` env)
-- `GET /users` — all users with `coins` + per-user `transcriptions`/`summaries` counts
-- `GET /users/:id` — one user with the same stats
-- `POST /users/:id/coins` — `{ amount, description? }` credits coins → `{ balance, transaction }`
-- `GET /users/:id/transactions` — that user's coin ledger
-- `GET /stats` — overview: user count, transcript/transcription/summary totals, total coins, transaction count
+All routes are under the **global `/api` prefix** (set in `main.ts`, which also enables CORS). All except login require `Authorization: Bearer <jwt>`.
+- `POST /api/auth/login` — `{ login, password }` → `{ accessToken }` (validated against `ADMIN_*` env)
+- `GET /api/users` — all users with `coins` + per-user `transcriptions`/`summaries` counts
+- `GET /api/users/:id` — one user with the same stats
+- `POST /api/users/:id/coins` — `{ amount, description? }` credits coins → `{ balance, transaction }`
+- `GET /api/users/:id/transactions` — that user's coin ledger
+- `GET /api/transactions` — all users' transactions, newest first, each with its owning user; optional `?limit=&offset=` (else returns all)
+- `GET /api/stats` — overview: user count, transcript/transcription/summary totals, total coins, transaction count
 
 ### Billing
 Costs (coins), charged only for work actually performed by Gemini (cached results are free): **transcribe = 5**, **summarize = 3** if a transcript already exists else **8** (summarizing straight from audio — which also transcribes and caches the transcript, so a later transcribe is free). New users start at 0; the bot blocks an action (Uzbek message) when the balance can't cover it. Every movement — admin credit (+) and usage debit (−) — is recorded in `coin_transactions` with the resulting `balanceAfter`.
@@ -77,7 +78,7 @@ Registration flow: `/start` (or any voice from an unregistered user) shows a `Ke
 - `src/storage/` — `StorageService` writes voice files to `uploads/voice/` (relative to `process.cwd()`), named `<timestamp>_<file_unique_id><ext>`. The directory is created on boot (`onModuleInit`) and again before each write. A save failure is logged but does **not** block transcription. The `uploads/voice/` files are gitignored (the folder is kept via `.gitkeep`).
 - `src/billing/` — `CoinTransaction` entity (table `coin_transactions`, `@ManyToOne` → `User`, `onDelete: CASCADE`) + `BillingService`. `credit()` (admin) and `charge()` (usage) both go through a private `apply()` that runs in a DB transaction with a **pessimistic write lock** on the user row (so concurrent charges can't overspend), updates `user.coins`, and appends a signed ledger entry with `balanceAfter`. `charge()` throws `InsufficientCoinsError` if the balance would go negative.
 - `src/auth/` — admin auth. `AuthService.login()` checks `ADMIN_LOGIN`/`ADMIN_PASSWORD` from env and signs a JWT (`@nestjs/jwt`, 1d expiry). `JwtAuthGuard` verifies the `Bearer` token; it's exported (with `JwtModule`) so `AdminModule` can apply it.
-- `src/admin/` — the protected REST controllers (`UsersController`, `StatsController`), all `@UseGuards(JwtAuthGuard)`. They compose `UsersService`, `TranscriptsService`, and `BillingService`; per-user counts come from `TranscriptsService.statsByUser()`. DTOs (`class-validator`) live in `src/admin/dto`.
+- `src/admin/` — the protected REST controllers (`UsersController`, `StatsController`, `TransactionsController`), all `@UseGuards(JwtAuthGuard)`. They compose `UsersService`, `TranscriptsService`, and `BillingService`; per-user counts come from `TranscriptsService.statsByUser()`, the global ledger from `BillingService.listAll()`. DTOs (`class-validator`) live in `src/admin/dto`.
 
 When adding features, prefer `nest generate module|service <name>` (CLI is installed) so wiring stays consistent. Note there are no controllers — adding HTTP routes would require switching `main.ts` back to `NestFactory.create` and re-adding `@nestjs/platform-express`.
 

@@ -55,6 +55,19 @@ export class BillingService {
     });
   }
 
+  /** All transactions across users, newest first, with the owning user loaded. */
+  listAll(options?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<CoinTransaction[]> {
+    return this.transactions.find({
+      relations: { user: true },
+      order: { createdAt: 'DESC' },
+      take: options?.limit,
+      skip: options?.offset,
+    });
+  }
+
   async totals(): Promise<{ totalCoins: number; transactionCount: number }> {
     const balance = await this.dataSource
       .getRepository(User)
