@@ -12,7 +12,6 @@ import {
   Keyboard,
   type CallbackQueryContext,
 } from 'grammy';
-import { extname } from 'node:path';
 import { TranscriptionService } from '../ai/transcription.service';
 import { BillingService } from '../billing/billing.service';
 import { StorageService } from '../storage/storage.service';
@@ -23,6 +22,11 @@ import { UsersService } from '../users/users.service';
 import { PHONE_BUTTON, messages } from './messages';
 
 type Action = 'transcribe' | 'summarize';
+
+/** Relative URL for a stored voice file, derived from Telegram's stable id. */
+function voiceAudioPath(fileUniqueId: string): string {
+  return `voice/${fileUniqueId}.ogg`;
+}
 
 function escapeHtml(text: string): string {
   return text
@@ -180,7 +184,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       // Price the buttons for this voice (reused audio may already be cached).
       const existing = await this.transcripts.find(
         user,
-        ctx.message.voice.file_unique_id,
+        voiceAudioPath(ctx.message.voice.file_unique_id),
       );
 
       await ctx.replyWithVoice(ctx.message.voice.file_id, {
@@ -314,7 +318,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Cost depends on what's already cached for this voice.
-    const existing = await this.transcripts.find(user, voice.file_unique_id);
+    const existing = await this.transcripts.find(
+      user,
+      voiceAudioPath(voice.file_unique_id),
+    );
     const cost = this.costFor(action, existing);
 
     // Not enough balance: show an alert popup and leave the message (and its
@@ -354,7 +361,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
       // Re-read so the restored buttons show updated prices (e.g. transcribe
       // is now free) after the result is cached.
-      const updated = await this.transcripts.find(user, voice.file_unique_id);
+      const updated = await this.transcripts.find(
+        user,
+        voiceAudioPath(voice.file_unique_id),
+      );
       await this.deliverResult(ctx, text || messages.noSpeech, updated);
     } catch (err) {
       this.logger.error('Failed to process voice message', err);
@@ -400,7 +410,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if (result.text) {
       await this.transcripts.saveTranscription({
         user,
-        fileUniqueId: voice.file_unique_id,
+        audioPath: voiceAudioPath(voice.file_unique_id),
         language: result.language,
         text: result.text,
       });
@@ -427,7 +437,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if (summary) {
         await this.transcripts.saveSummary({
           user,
-          fileUniqueId: voice.file_unique_id,
+          audioPath: voiceAudioPath(voice.file_unique_id),
           language: existing.language,
           summary,
         });
@@ -448,7 +458,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if (result.transcription || result.summary) {
       await this.transcripts.saveTranscriptionAndSummary({
         user,
-        fileUniqueId: voice.file_unique_id,
+        audioPath: voiceAudioPath(voice.file_unique_id),
         language: result.language,
         text: result.transcription,
         summary: result.summary,
@@ -472,8 +482,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const audio = Buffer.from(await res.arrayBuffer());
 
     // Persist the original audio; failure here must not block processing.
-    const ext = extname(file.file_path) || '.ogg';
-    const filename = `${Date.now()}_${file.file_unique_id}${ext}`;
+    // Filename is deterministic (matches the stored audioPath key).
+    const filename = `${file.file_unique_id}.ogg`;
     await this.storage
       .saveVoice(audio, filename)
       .catch((err) =>

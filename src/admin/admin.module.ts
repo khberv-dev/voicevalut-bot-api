@@ -6,10 +6,11 @@ import { TranscriptsModule } from '../transcripts/transcripts.module';
 import { UsersModule } from '../users/users.module';
 import { StatsController } from './stats.controller';
 import { TransactionsController } from './transactions.controller';
+import { TranscriptionsController } from './transcriptions.controller';
 import { UsersController } from './users.controller';
 
 @Module({
   imports: [AuthModule, BillingModule, TranscriptsModule, UsersModule, NotificationsModule],
-  controllers: [UsersController, StatsController, TransactionsController],
+  controllers: [UsersController, StatsController, TransactionsController, TranscriptionsController],
 })
 export class AdminModule {}

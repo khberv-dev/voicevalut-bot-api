@@ -18,7 +18,7 @@ import { User } from '../users/user.entity';
  * null until that action is run.
  */
 @Entity('transcripts')
-@Unique(['user', 'fileUniqueId'])
+@Unique(['user', 'audioPath'])
 export class Transcript {
   @PrimaryGeneratedColumn()
   id: number;
@@ -27,8 +27,8 @@ export class Transcript {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @Column({ name: 'file_unique_id' })
-  fileUniqueId: string;
+  @Column({ name: 'audio_path' })
+  audioPath: string;
 
   @Column()
   language: string;

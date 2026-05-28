@@ -6,14 +6,14 @@ import { Transcript } from './transcript.entity';
 
 export interface SaveTranscriptionInput {
   user: User;
-  fileUniqueId: string;
+  audioPath: string;
   language: string;
   text: string;
 }
 
 export interface SaveSummaryInput {
   user: User;
-  fileUniqueId: string;
+  audioPath: string;
   language: string;
   summary: string;
 }
@@ -26,15 +26,15 @@ export class TranscriptsService {
   ) {}
 
   /** Find this user's saved record for a given voice, if any. */
-  find(user: User, fileUniqueId: string): Promise<Transcript | null> {
+  find(user: User, audioPath: string): Promise<Transcript | null> {
     return this.transcripts.findOne({
-      where: { user: { id: user.id }, fileUniqueId },
+      where: { user: { id: user.id }, audioPath },
     });
   }
 
   /** Upsert the transcription text, preserving any cached summary. */
   async saveTranscription(input: SaveTranscriptionInput): Promise<Transcript> {
-    const row = await this.findOrCreate(input.user, input.fileUniqueId);
+    const row = await this.findOrCreate(input.user, input.audioPath);
     row.language = input.language;
     row.text = input.text;
     return this.transcripts.save(row);
@@ -42,7 +42,7 @@ export class TranscriptsService {
 
   /** Upsert the cached summary, preserving any transcription text. */
   async saveSummary(input: SaveSummaryInput): Promise<Transcript> {
-    const row = await this.findOrCreate(input.user, input.fileUniqueId);
+    const row = await this.findOrCreate(input.user, input.audioPath);
     row.language = input.language;
     row.summary = input.summary;
     return this.transcripts.save(row);
@@ -52,7 +52,7 @@ export class TranscriptsService {
   async saveTranscriptionAndSummary(
     input: SaveTranscriptionInput & { summary: string },
   ): Promise<Transcript> {
-    const row = await this.findOrCreate(input.user, input.fileUniqueId);
+    const row = await this.findOrCreate(input.user, input.audioPath);
     row.language = input.language;
     row.text = input.text;
     row.summary = input.summary;
@@ -61,10 +61,10 @@ export class TranscriptsService {
 
   private async findOrCreate(
     user: User,
-    fileUniqueId: string,
+    audioPath: string,
   ): Promise<Transcript> {
-    const existing = await this.find(user, fileUniqueId);
-    return existing ?? this.transcripts.create({ user, fileUniqueId });
+    const existing = await this.find(user, audioPath);
+    return existing ?? this.transcripts.create({ user, audioPath });
   }
 
   /** Overall counts: total records, and how many have a transcription / summary. */
@@ -84,6 +84,16 @@ export class TranscriptsService {
         summaries: number;
       }>();
     return row ?? { records: 0, transcriptions: 0, summaries: 0 };
+  }
+
+  /** All transcripts across users, newest first, with the owning user loaded. */
+  listAll(options?: { limit?: number; offset?: number }): Promise<Transcript[]> {
+    return this.transcripts.find({
+      relations: { user: true },
+      order: { createdAt: 'DESC' },
+      take: options?.limit,
+      skip: options?.offset,
+    });
   }
 
   findByUser(user: User, skip: number, take: number): Promise<Transcript[]> {
