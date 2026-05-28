@@ -9,6 +9,16 @@
 
 export const PHONE_BUTTON = '📱 Telefon raqamni ulashish';
 
+function formatDate(d: Date): string {
+  const months = [
+    'yan', 'fev', 'mar', 'apr', 'may', 'iyn',
+    'iyl', 'avg', 'sen', 'okt', 'noy', 'dek',
+  ];
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${d.getDate()} ${months[d.getMonth()]}, ${h}:${m}`;
+}
+
 /** Render a coin cost for a button label (0 => "free"). */
 const price = (cost: number): string => (cost === 0 ? 'bepul' : `${cost} 💎`);
 
@@ -20,7 +30,8 @@ export const messages = {
     "🌐 Tillar: <b>o'zbek</b> va <b>rus</b>.\n\n" +
     '<b>📋 Buyruqlar:</b>\n' +
     '▫️ /start — botni ishga tushirish\n' +
-    "▫️ /balance — 💎 balansni ko'rish",
+    "▫️ /balance — 💎 balansni ko'rish\n" +
+    "▫️ /history — 📚 tarixni ko'rish",
 
   askPhone:
     '👋 <b>Assalomu alaykum!</b>\n\n' +
@@ -66,4 +77,39 @@ export const messages = {
     "💎 to'ldirish uchun administrator bilan bog'laning.",
 
   balance: (coins: number) => `💰 <b>Balans:</b> ${coins} 💎`,
+
+  coinsAdded: (amount: number, balance: number) =>
+    `🎉 Hisobingizga <b>${amount} 💎</b> qo'shildi!\n` +
+    `Yangi balans: <b>${balance} 💎</b>`,
+
+  // History list
+  historyEmpty: '📭 Hali birorta ovozli xabar qayta ishlanmagan.',
+  historyHeader: (page: number, totalPages: number) =>
+    `📚 <b>Tarix</b> — ${page}/${totalPages} sahifa`,
+  historyEntry: (
+    n: number,
+    date: Date,
+    lang: string,
+    hasText: boolean,
+    hasSummary: boolean,
+  ) => {
+    const langIcon =
+      lang === 'uzbek' ? '🇺🇿' : lang === 'russian' ? '🇷🇺' : '';
+    const content = [hasText && '📝', hasSummary && '📋']
+      .filter(Boolean)
+      .join(' ');
+    const meta = [langIcon, content || '—'].filter(Boolean).join(' · ');
+    return `${n}. ${formatDate(date)} · ${meta}`;
+  },
+  historyBtnView: (n: number) => `👁 ${n}`,
+  historyBtnPrev: '⬅️ Oldingi',
+  historyBtnNext: 'Keyingi ➡️',
+
+  // History detail view
+  historyDetailHeader: (date: Date) => `📄 <b>${formatDate(date)}</b>`,
+  historyDetailText: (text: string) => `\n\n📝 <b>Matn:</b>\n${text}`,
+  historyDetailSummary: (summary: string) => `\n\n📋 <b>Xulosa:</b>\n${summary}`,
+  historyDetailEmpty: "❌ Bu yozuv uchun mazmun yo'q.",
+  historyBtnBack: '⬅️ Orqaga',
+  historyNotFound: '😕 Yozuv topilmadi.',
 };

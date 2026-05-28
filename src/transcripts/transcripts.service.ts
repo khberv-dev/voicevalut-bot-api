@@ -86,6 +86,23 @@ export class TranscriptsService {
     return row ?? { records: 0, transcriptions: 0, summaries: 0 };
   }
 
+  findByUser(user: User, skip: number, take: number): Promise<Transcript[]> {
+    return this.transcripts.find({
+      where: { user: { id: user.id } },
+      order: { createdAt: 'DESC' },
+      skip,
+      take,
+    });
+  }
+
+  countByUser(user: User): Promise<number> {
+    return this.transcripts.count({ where: { user: { id: user.id } } });
+  }
+
+  findById(id: number): Promise<Transcript | null> {
+    return this.transcripts.findOne({ where: { id } });
+  }
+
   /** Per-user transcription/summary counts, keyed by user id. */
   async statsByUser(): Promise<
     Map<number, { transcriptions: number; summaries: number }>

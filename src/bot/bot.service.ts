@@ -24,8 +24,20 @@ import { PHONE_BUTTON, messages } from './messages';
 
 type Action = 'transcribe' | 'summarize';
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max) + '…' : text;
+}
+
 const CAPTION_LIMIT = 1024; // Telegram caption length cap
 const MESSAGE_LIMIT = 4096; // Telegram text message length cap
+const HISTORY_PAGE_SIZE = 5;
 
 // Coin cost per action. Summarizing reuses a transcript when one exists (3),
 // otherwise it does the transcription work too (8 = 5 + 3). Cached results
@@ -185,6 +197,62 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     this.bot.callbackQuery('summarize', (ctx) =>
       this.handleAction(ctx, 'summarize'),
     );
+
+    // /history — show the user's transcript history (page 0).
+    this.bot.command('history', async (ctx) => {
+      const from = ctx.from;
+      if (!from) return;
+      const user = await this.users.findByTelegramId(from.id);
+      if (!user) {
+        await ctx.reply(messages.notRegistered, {
+          reply_markup: this.phoneKeyboard,
+          parse_mode: 'HTML',
+        });
+        return;
+      }
+      const { text, keyboard } = await this.buildHistoryPage(user, 0);
+      await ctx.reply(text, { reply_markup: keyboard, parse_mode: 'HTML' });
+    });
+
+    // Paginate the history list.
+    this.bot.callbackQuery(/^hist_p_(\d+)$/, async (ctx) => {
+      const from = ctx.from;
+      if (!from) {
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      const page = Number(ctx.match[1]);
+      const user = await this.users.findByTelegramId(from.id);
+      if (!user) {
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      await ctx.answerCallbackQuery();
+      const { text, keyboard } = await this.buildHistoryPage(user, page);
+      await ctx.editMessageText(text, {
+        reply_markup: keyboard,
+        parse_mode: 'HTML',
+      });
+    });
+
+    // Open the detail view for one history entry.
+    this.bot.callbackQuery(/^hist_v_(\d+)_(\d+)$/, async (ctx) => {
+      const id = Number(ctx.match[1]);
+      const page = Number(ctx.match[2]);
+      await ctx.answerCallbackQuery();
+      const transcript = await this.transcripts.findById(id);
+      if (!transcript) {
+        await ctx.editMessageText(messages.historyNotFound, {
+          parse_mode: 'HTML',
+        });
+        return;
+      }
+      const { text, keyboard } = this.buildDetailView(transcript, page);
+      await ctx.editMessageText(text, {
+        reply_markup: keyboard,
+        parse_mode: 'HTML',
+      });
+    });
   }
 
   /**
@@ -413,6 +481,89 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       );
 
     return audio;
+  }
+
+  /** Build the paginated history list message and its inline keyboard. */
+  private async buildHistoryPage(
+    user: User,
+    page: number,
+  ): Promise<{ text: string; keyboard: InlineKeyboard }> {
+    const total = await this.transcripts.countByUser(user);
+    if (total === 0) {
+      return { text: messages.historyEmpty, keyboard: new InlineKeyboard() };
+    }
+
+    const totalPages = Math.ceil(total / HISTORY_PAGE_SIZE);
+    const safePage = Math.min(Math.max(page, 0), totalPages - 1);
+    const items = await this.transcripts.findByUser(
+      user,
+      safePage * HISTORY_PAGE_SIZE,
+      HISTORY_PAGE_SIZE,
+    );
+
+    const lines: string[] = [messages.historyHeader(safePage + 1, totalPages)];
+    for (let i = 0; i < items.length; i++) {
+      const n = safePage * HISTORY_PAGE_SIZE + i + 1;
+      lines.push(
+        messages.historyEntry(
+          n,
+          items[i].createdAt,
+          items[i].language,
+          !!items[i].text,
+          !!items[i].summary,
+        ),
+      );
+    }
+
+    const keyboard = new InlineKeyboard();
+    for (let i = 0; i < items.length; i++) {
+      const n = safePage * HISTORY_PAGE_SIZE + i + 1;
+      keyboard.text(
+        messages.historyBtnView(n),
+        `hist_v_${items[i].id}_${safePage}`,
+      );
+    }
+
+    if (totalPages > 1) {
+      keyboard.row();
+      if (safePage > 0) {
+        keyboard.text(messages.historyBtnPrev, `hist_p_${safePage - 1}`);
+      }
+      if (safePage < totalPages - 1) {
+        keyboard.text(messages.historyBtnNext, `hist_p_${safePage + 1}`);
+      }
+    }
+
+    return { text: lines.join('\n'), keyboard };
+  }
+
+  /** Build the detail view for one transcript entry. */
+  private buildDetailView(
+    transcript: Transcript,
+    page: number,
+  ): { text: string; keyboard: InlineKeyboard } {
+    let text = messages.historyDetailHeader(transcript.createdAt);
+
+    if (!transcript.text && !transcript.summary) {
+      text += '\n\n' + messages.historyDetailEmpty;
+    } else {
+      if (transcript.text) {
+        text += messages.historyDetailText(
+          truncate(escapeHtml(transcript.text), 1800),
+        );
+      }
+      if (transcript.summary) {
+        text += messages.historyDetailSummary(
+          truncate(escapeHtml(transcript.summary), 1800),
+        );
+      }
+    }
+
+    const keyboard = new InlineKeyboard().text(
+      messages.historyBtnBack,
+      `hist_p_${page}`,
+    );
+    return { text, keyboard };
   }
 
   /**

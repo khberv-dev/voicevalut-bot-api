@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Logger,
   NotFoundException,
   Param,
   ParseIntPipe,
@@ -11,6 +12,7 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { BillingService } from '../billing/billing.service';
 import { CoinTransaction } from '../billing/coin-transaction.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { TranscriptsService } from '../transcripts/transcripts.service';
 import { User } from '../users/user.entity';
 import { UsersService } from '../users/users.service';
@@ -41,10 +43,13 @@ function publicUser(user: User) {
 @Controller('users')
 @UseGuards(JwtAuthGuard)
 export class UsersController {
+  private readonly logger = new Logger(UsersController.name);
+
   constructor(
     private readonly users: UsersService,
     private readonly transcripts: TranscriptsService,
     private readonly billing: BillingService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** All users with their per-user transcription/summary counts and balance. */
@@ -81,11 +86,17 @@ export class UsersController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AddCoinsDto,
   ) {
-    const transaction = await this.billing.credit(
-      id,
-      dto.amount,
-      dto.description,
-    );
+    const user = await this.users.findById(id);
+    if (!user) throw new NotFoundException('User not found');
+
+    const transaction = await this.billing.credit(id, dto.amount, dto.description);
+
+    this.notifications
+      .notifyCoinCredit(user.telegramId, dto.amount, transaction.balanceAfter)
+      .catch((err) =>
+        this.logger.warn(`Coin credit notification failed for user ${id}`, err),
+      );
+
     return {
       userId: id,
       balance: transaction.balanceAfter,
