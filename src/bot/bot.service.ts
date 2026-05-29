@@ -39,7 +39,6 @@ function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) + '…' : text;
 }
 
-const CAPTION_LIMIT = 1024; // Telegram caption length cap
 const MESSAGE_LIMIT = 4096; // Telegram text message length cap
 const HISTORY_PAGE_SIZE = 5;
 
@@ -187,8 +186,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         voiceAudioPath(ctx.message.voice.file_unique_id),
       );
 
-      await ctx.replyWithVoice(ctx.message.voice.file_id, {
-        caption: messages.chooseAction,
+      await ctx.reply(messages.chooseAction, {
         reply_markup: this.actionKeyboard(existing),
         reply_parameters: { message_id: ctx.message.message_id },
         parse_mode: 'HTML',
@@ -277,18 +275,17 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Edit the caption; pass a keyboard to keep buttons, omit it to remove them.
-   * `html` controls parse mode — keep it off for user content (e.g. the
-   * transcription/summary result), which may contain `<` or `&`.
+   * Edit the bot's text reply; pass a keyboard to keep buttons, omit it to
+   * remove them. `html` controls parse mode — keep it off for user content
+   * (e.g. the transcription/summary result), which may contain `<` or `&`.
    */
   private async setCaption(
     ctx: CallbackQueryContext<Context>,
-    caption: string,
+    text: string,
     keyboard?: InlineKeyboard,
     html = true,
   ): Promise<void> {
-    await ctx.editMessageCaption({
-      caption,
+    await ctx.editMessageText(text, {
       reply_markup: keyboard,
       parse_mode: html ? 'HTML' : undefined,
     });
@@ -299,11 +296,16 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     ctx: CallbackQueryContext<Context>,
     action: Action,
   ): Promise<void> {
-    // The button is attached to the voice note the bot echoed, so the audio
-    // (and its content-stable file_unique_id) is right there on the message.
+    // The buttons are on a text reply whose reply_to_message is the original
+    // voice note — that's where the stable file_unique_id lives.
     const from = ctx.from;
     const message = ctx.callbackQuery.message;
-    const voice = message && 'voice' in message ? message.voice : undefined;
+    const replyTo =
+      message && 'reply_to_message' in message
+        ? message.reply_to_message
+        : undefined;
+    const voice =
+      replyTo && 'voice' in replyTo ? replyTo.voice : undefined;
     if (!from || !voice) {
       await ctx.answerCallbackQuery();
       await this.setCaption(ctx, messages.fileError);
@@ -577,10 +579,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Put the result in the message caption and restore the action buttons (so
-   * the user can run the other action — e.g. summarize after transcribing).
-   * Captions are capped at 1024 chars, so longer output is sent as follow-up
-   * text messages instead.
+   * Put the result in the bot's reply and restore the action buttons.
+   * Text messages are capped at 4096 chars, so longer output is sent as
+   * follow-up messages instead.
    */
   private async deliverResult(
     ctx: CallbackQueryContext<Context>,
@@ -588,7 +589,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     existing: Transcript | null,
   ): Promise<void> {
     const keyboard = this.actionKeyboard(existing);
-    if (text.length <= CAPTION_LIMIT) {
+    if (text.length <= MESSAGE_LIMIT) {
       // The result is user content — send it plain (no HTML parsing).
       await this.setCaption(ctx, text, keyboard, false);
       return;
