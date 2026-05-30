@@ -19,7 +19,7 @@ import { Transcript } from '../transcripts/transcript.entity';
 import { TranscriptsService } from '../transcripts/transcripts.service';
 import { User } from '../users/user.entity';
 import { UsersService } from '../users/users.service';
-import { PHONE_BUTTON, messages } from './messages';
+import { BTN_BALANCE, BTN_HISTORY, PHONE_BUTTON, messages } from './messages';
 
 type Action = 'transcribe' | 'summarize';
 
@@ -62,6 +62,13 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     .requestContact(PHONE_BUTTON)
     .resized()
     .oneTime();
+
+  /** Persistent main keyboard shown to registered users. */
+  private readonly mainKeyboard = new Keyboard()
+    .text(BTN_BALANCE)
+    .text(BTN_HISTORY)
+    .resized()
+    .persistent();
 
   constructor(
     config: ConfigService,
@@ -106,6 +113,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       const user = await this.users.findByTelegramId(from.id);
       if (user) {
         await ctx.reply(messages.welcome(user.fullName), {
+          reply_markup: this.mainKeyboard,
           parse_mode: 'HTML',
         });
       } else {
@@ -116,21 +124,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       }
     });
 
-    // /balance — show the user's current coin balance.
-    this.bot.command('balance', async (ctx) => {
-      const from = ctx.from;
-      if (!from) return;
-
-      const user = await this.users.findByTelegramId(from.id);
-      if (!user) {
-        await ctx.reply(messages.askPhone, {
-          reply_markup: this.phoneKeyboard,
-          parse_mode: 'HTML',
-        });
-        return;
-      }
-      await ctx.reply(messages.balance(user.coins), { parse_mode: 'HTML' });
-    });
+    // /balance and keyboard button — show the user's current coin balance.
+    this.bot.command('balance', (ctx) => this.handleBalance(ctx));
+    this.bot.hears(BTN_BALANCE, (ctx) => this.handleBalance(ctx));
 
     // Registration — triggered when the user taps "share phone number".
     this.bot.on('message:contact', async (ctx) => {
@@ -159,7 +155,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       });
 
       await ctx.reply(messages.registered(user.fullName), {
-        reply_markup: { remove_keyboard: true },
+        reply_markup: this.mainKeyboard,
         parse_mode: 'HTML',
       });
     });
@@ -201,20 +197,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     );
 
     // /history — show the user's transcript history (page 0).
-    this.bot.command('history', async (ctx) => {
-      const from = ctx.from;
-      if (!from) return;
-      const user = await this.users.findByTelegramId(from.id);
-      if (!user) {
-        await ctx.reply(messages.notRegistered, {
-          reply_markup: this.phoneKeyboard,
-          parse_mode: 'HTML',
-        });
-        return;
-      }
-      const { text, keyboard } = await this.buildHistoryPage(user, 0);
-      await ctx.reply(text, { reply_markup: keyboard, parse_mode: 'HTML' });
-    });
+    // /history and keyboard button — show the user's transcript history.
+    this.bot.command('history', (ctx) => this.handleHistory(ctx));
+    this.bot.hears(BTN_HISTORY, (ctx) => this.handleHistory(ctx));
 
     // Paginate the history list.
     this.bot.callbackQuery(/^hist_p_(\d+)$/, async (ctx) => {
@@ -304,8 +289,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       message && 'reply_to_message' in message
         ? message.reply_to_message
         : undefined;
-    const voice =
-      replyTo && 'voice' in replyTo ? replyTo.voice : undefined;
+    const voice = replyTo && 'voice' in replyTo ? replyTo.voice : undefined;
     if (!from || !voice) {
       await ctx.answerCallbackQuery();
       await this.setCaption(ctx, messages.fileError);
@@ -493,6 +477,35 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       );
 
     return audio;
+  }
+
+  private async handleBalance(ctx: Context): Promise<void> {
+    const from = ctx.from;
+    if (!from) return;
+    const user = await this.users.findByTelegramId(from.id);
+    if (!user) {
+      await ctx.reply(messages.askPhone, {
+        reply_markup: this.phoneKeyboard,
+        parse_mode: 'HTML',
+      });
+      return;
+    }
+    await ctx.reply(messages.balance(user.coins), { parse_mode: 'HTML' });
+  }
+
+  private async handleHistory(ctx: Context): Promise<void> {
+    const from = ctx.from;
+    if (!from) return;
+    const user = await this.users.findByTelegramId(from.id);
+    if (!user) {
+      await ctx.reply(messages.notRegistered, {
+        reply_markup: this.phoneKeyboard,
+        parse_mode: 'HTML',
+      });
+      return;
+    }
+    const { text, keyboard } = await this.buildHistoryPage(user, 0);
+    await ctx.reply(text, { reply_markup: keyboard, parse_mode: 'HTML' });
   }
 
   /** Build the paginated history list message and its inline keyboard. */

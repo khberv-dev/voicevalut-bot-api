@@ -8,6 +8,8 @@
  */
 
 export const PHONE_BUTTON = '📱 Telefon raqamni ulashish';
+export const BTN_BALANCE = '💰 Balans';
+export const BTN_HISTORY = '📚 Tarix';
 
 function formatDate(d: Date): string {
   const months = [
